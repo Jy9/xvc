@@ -1,4 +1,5 @@
 // 虚拟滚动条组件 - 符合文档需求实现
+import CSS from './v-scroll.css?inline';
 
 class VScroll extends HTMLElement {
   static get observedAttributes() {
@@ -30,7 +31,6 @@ class VScroll extends HTMLElement {
   }
 
   connectedCallback() {
-    this._root = this.attachShadow({ mode: 'open' });
     this._render();
     this._setupEventListeners();
     this._setupObservers();
@@ -50,12 +50,18 @@ class VScroll extends HTMLElement {
   _render() {
     // 保存原始内容
     const content = this.innerHTML;
-    this.innerHTML = '';
+    
+    // 创建Shadow DOM
+    if (!this._root) {
+      this._root = this.attachShadow({ mode: 'open' });
+    }
+    
+    // 清空Shadow DOM
     this._root.innerHTML = '';
     
     // 注入CSS
     const style = document.createElement('style');
-    style.textContent = this._getCSS();
+    style.textContent = CSS;
     this._root.appendChild(style);
     
     // 创建容器
@@ -73,6 +79,7 @@ class VScroll extends HTMLElement {
     // 创建滚动条
     this._scrollbar = document.createElement('div');
     this._scrollbar.setAttribute('part', 'scrollbar');
+    this._scrollbar.style.display = 'block'; // 初始显示滚动条
     
     // 创建轨道
     this._track = document.createElement('div');
@@ -85,93 +92,16 @@ class VScroll extends HTMLElement {
     this._scrollbar.appendChild(this._track);
     this._scrollbar.appendChild(this._thumb);
     this._root.appendChild(this._scrollbar);
-  }
-
-  _getCSS() {
-    return `
-      :host {
-        --v-scroll-track-bg: transparent;
-        --v-scroll-track-bg-hover: rgba(0, 0, 0, 0.05);
-        --v-scroll-thumb-bg: rgba(0, 0, 0, 0.2);
-        --v-scroll-thumb-bg-hover: rgba(0, 0, 0, 0.4);
-        --v-scroll-thumb-bg-dragging: rgba(0, 0, 0, 0.5);
-        --v-scroll-thumb-radius: 5px;
-        --v-scroll-thumb-min-height: 16px;
-        --v-scroll-track-padding: 3px;
-        --v-scroll-width: 14px;
-        display: block;
-        position: relative;
-        overflow: hidden;
-      }
-
-      [part="container"] {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: var(--v-scroll-width);
-        bottom: 0;
-        overflow-y: auto;
-        overflow-x: hidden;
-      }
-
-      [part="container"]::-webkit-scrollbar {
-        width: 0;
-        height: 0;
-      }
-
-      [part="scrollbar"] {
-        position: absolute;
-        top: 0;
-        right: 0;
-        width: var(--v-scroll-width);
-        height: 100%;
-        background: var(--v-scroll-track-bg);
-        z-index: 10;
-        transition: background-color 0.15s ease;
-      }
-
-      [part="scrollbar"]:hover {
-        background: var(--v-scroll-track-bg-hover);
-      }
-
-      [part="track"] {
-        position: absolute;
-        top: var(--v-scroll-track-padding);
-        right: var(--v-scroll-track-padding);
-        width: calc(var(--v-scroll-width) - var(--v-scroll-track-padding) * 2);
-        bottom: var(--v-scroll-track-padding);
-        background: transparent;
-        border-radius: var(--v-scroll-thumb-radius);
-      }
-
-      [part="thumb"] {
-        position: absolute;
-        right: var(--v-scroll-track-padding);
-        width: calc(var(--v-scroll-width) - var(--v-scroll-track-padding) * 2);
-        min-height: var(--v-scroll-thumb-min-height);
-        background: var(--v-scroll-thumb-bg);
-        border-radius: var(--v-scroll-thumb-radius);
-        cursor: grab;
-        transition: background-color 0.15s ease, opacity 0.15s ease;
-        opacity: 0.8;
-      }
-
-      [part="thumb"]:hover {
-        background: var(--v-scroll-thumb-bg-hover);
-        opacity: 1;
-      }
-
-      [part="thumb"].dragging {
-        background: var(--v-scroll-thumb-bg-dragging);
-        opacity: 1;
-        cursor: grabbing;
-      }
-
-      :host(.scrolling) [part="container"],
-      :host(.scrolling) [part="thumb"] {
-        cursor: ns-resize !important;
-      }
-    `;
+    
+    // 确保组件有正确的尺寸
+    this.style.display = 'block';
+    this.style.position = 'relative';
+    this.style.overflow = 'hidden';
+    
+    // 立即计算初始尺寸
+    setTimeout(() => {
+      this._updateScrollbar();
+    }, 0);
   }
 
   _setupEventListeners() {
@@ -297,7 +227,7 @@ class VScroll extends HTMLElement {
   }
 
   _updateThumbPosition() {
-    if (!this._thumb || !this._scrollbarVisible) return;
+    if (!this._thumb || !this._scrollbarVisible || !this._container) return;
     
     const thumbHeight = this._getThumbHeight();
     const trackHeight = this._containerHeight - this.TRACK_PADDING * 2;
@@ -315,36 +245,53 @@ class VScroll extends HTMLElement {
   }
 
   _updateScrollbar() {
-    this._contentHeight = this._container.scrollHeight;
-    this._containerHeight = this._container.clientHeight;
+    if (!this._container || !this._scrollbar) {
+      console.log('Container or scrollbar not found:', { container: !!this._container, scrollbar: !!this._scrollbar });
+      return;
+    }
     
-    const shouldShow = this._containerHeight > 0 && this._contentHeight > this._containerHeight && !this.hasAttribute('disabled');
+    // 确保容器高度正确计算
+    this._contentHeight = this._container.scrollHeight;
+    
+    // 从多个来源获取高度，确保高度正确
+    let containerHeight = this._container.clientHeight;
+    const componentHeight = this.clientHeight;
+    const computedHeight = parseFloat(window.getComputedStyle(this).height);
+    
+    // 使用最大的有效高度
+    if (componentHeight > 0) containerHeight = componentHeight;
+    if (computedHeight > 0) containerHeight = computedHeight;
+    
+    // 如果所有高度都为0，使用默认高度400px
+    if (containerHeight <= 0) {
+      containerHeight = 400;
+      console.log('Using default height 400px');
+    }
+    
+    this._containerHeight = containerHeight;
+    
+    console.log('Component dimensions:', {
+      contentHeight: this._contentHeight,
+      containerHeight: this._containerHeight,
+      componentHeight: componentHeight,
+      computedHeight: computedHeight,
+      shouldShow: this._containerHeight > 0 && this._contentHeight > this._containerHeight && !this.hasAttribute('disabled')
+    });
+    
+    // 强制显示滚动条，无论内容高度是否大于容器高度
+    const shouldShow = true;
     
     if (shouldShow !== this._scrollbarVisible) {
       this._scrollbarVisible = shouldShow;
-      this._scrollbar.style.display = shouldShow ? 'block' : 'none';
+      this._scrollbar.style.display = 'block';
+      console.log('Scrollbar visibility changed to:', shouldShow);
     }
     
-    if (shouldShow) {
-      this._updateThumbPosition();
-    }
+    // 强制更新滑块位置
+    this._updateThumbPosition();
   }
 
   _cleanup() {
-    // 移除事件监听器
-    if (this._container) {
-      this._container.removeEventListener('scroll', this._handleScroll);
-    }
-    if (this._thumb) {
-      this._thumb.removeEventListener('pointerdown', this._handlePointerDown);
-      this._thumb.removeEventListener('pointermove', this._handlePointerMove);
-      this._thumb.removeEventListener('pointerup', this._handlePointerUp);
-      this._thumb.removeEventListener('pointercancel', this._handlePointerUp);
-    }
-    if (this._track) {
-      this._track.removeEventListener('pointerdown', this._handleTrackClick);
-    }
-    
     // 断开观察者
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
